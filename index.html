@@ -1,0 +1,929 @@
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  #game-root {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 15px;
+    line-height: 1.6;
+    min-height: 600px;
+    display: flex;
+    flex-direction: column;
+    background: #0a0a0a;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  #scanline {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  #top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 16px;
+    border-bottom: 1px solid currentColor;
+    font-size: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  #title-text {
+    font-family: 'VT323', monospace;
+    font-size: 22px;
+    letter-spacing: 2px;
+  }
+
+  #stats-bar {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+  }
+
+  .stat-item { display: flex; gap: 4px; }
+  .stat-label { opacity: 0.6; }
+
+  #color-bar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 11px;
+  }
+
+  .theme-btn {
+    background: none;
+    border: 1px solid currentColor;
+    color: inherit;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    padding: 2px 6px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+  }
+  .theme-btn:hover, .theme-btn.active { opacity: 1; }
+
+  #progress-bar-wrap {
+    padding: 4px 16px;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid currentColor;
+    opacity: 0.7;
+  }
+
+  #progress-track {
+    flex: 1;
+    height: 6px;
+    border: 1px solid currentColor;
+    border-radius: 0;
+    overflow: hidden;
+  }
+
+  #progress-fill {
+    height: 100%;
+    background: currentColor;
+    width: 0%;
+    transition: width 0.5s ease;
+  }
+
+  #output {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    min-height: 380px;
+    max-height: 420px;
+  }
+
+  .line { margin-bottom: 2px; }
+  .line.system { opacity: 0.85; }
+  .line.player { opacity: 1; }
+  .line.hint { opacity: 0.75; font-style: italic; }
+  .line.success { }
+  .line.error { }
+  .line.blank { margin-bottom: 10px; }
+  .line.separator { opacity: 0.3; margin: 6px 0; }
+
+  #input-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    border-top: 1px solid currentColor;
+    gap: 8px;
+  }
+
+  #prompt-sym {
+    font-size: 18px;
+    font-family: 'VT323', monospace;
+  }
+
+  #cmd-input {
+    flex: 1;
+    background: none;
+    border: none;
+    color: inherit;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 15px;
+    outline: none;
+    caret-color: currentColor;
+  }
+
+  #cmd-input::placeholder { opacity: 0.3; }
+
+  .mode-badge {
+    font-size: 10px;
+    border: 1px solid currentColor;
+    padding: 1px 6px;
+    opacity: 0.6;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .blink { animation: blink 1s step-end infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  .typing-line::after {
+    content: '█';
+    animation: blink 0.8s step-end infinite;
+  }
+</style>
+
+<div id="game-root">
+  <div id="scanline"></div>
+
+  <div id="top-bar">
+    <span id="title-text">ANATOMIA v1.0</span>
+    <div id="color-bar">
+      <span style="opacity:0.5;font-size:11px;">THEME:</span>
+      <button class="theme-btn active" onclick="setTheme('green')" data-theme="green">PHOSPHOR</button>
+      <button class="theme-btn" onclick="setTheme('amber')" data-theme="amber">AMBER</button>
+      <button class="theme-btn" onclick="setTheme('dark')" data-theme="dark">DARK</button>
+      <button class="theme-btn" onclick="setTheme('clinical')" data-theme="clinical">CLINICAL</button>
+    </div>
+    <div id="stats-bar">
+      <div class="stat-item"><span class="stat-label">SCORE:</span><span id="score-val">0</span></div>
+      <div class="stat-item"><span class="stat-label">MODE:</span><span id="mode-val">—</span></div>
+    </div>
+  </div>
+
+  <div id="progress-bar-wrap">
+    <span style="opacity:0.6;font-size:11px;">COMPLETION:</span>
+    <div id="progress-track"><div id="progress-fill"></div></div>
+    <span id="progress-pct">0%</span>
+  </div>
+
+  <div id="output"></div>
+
+  <div id="input-row">
+    <span id="prompt-sym">&gt;</span>
+    <input id="cmd-input" type="text" placeholder="type a command..." autocomplete="off" autocorrect="off" spellcheck="false" />
+    <span class="mode-badge" id="mode-badge">READY</span>
+  </div>
+</div>
+
+<script>
+const THEMES = {
+  green:    { color: '#33ff66', bg: '#050f07', accent: '#22cc44' },
+  amber:    { color: '#ffb347', bg: '#0d0800', accent: '#ff8800' },
+  dark:     { color: '#c8c8d0', bg: '#0a0a0e', accent: '#8888ff' },
+  clinical: { color: '#111111', bg: '#f4f6f8', accent: '#003366' }
+};
+
+function setTheme(name) {
+  const t = THEMES[name];
+  const root = document.getElementById('game-root');
+  root.style.color = t.color;
+  root.style.background = t.bg;
+  document.querySelectorAll('.theme-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.theme === name);
+  });
+}
+setTheme('green');
+
+const DB = {
+  bones: {
+    'scapula': { aliases: ['shoulder blade','omoplat'], features: ['glenoid cavity','glenoid fossa','acromion','coracoid process','spine of scapula','supraspinous fossa','infraspinous fossa','subscapular fossa','superior angle','inferior angle','medial border','lateral border'] },
+    'clavicle': { aliases: ['collar bone','collarbone'], features: ['sternal end','acromial end','conoid tubercle','trapezoid line'] },
+    'humerus': { aliases: [], features: ['head','anatomical neck','surgical neck','greater tubercle','lesser tubercle','intertubercular groove','bicipital groove','deltoid tuberosity','radial groove','spiral groove','medial epicondyle','lateral epicondyle','capitulum','trochlea','olecranon fossa','coronoid fossa','radial fossa'] },
+    'radius': { aliases: [], features: ['head','neck','radial tuberosity','bicipital tuberosity','anterior oblique line','styloid process','ulnar notch','dorsal tubercle',"lister's tubercle"] },
+    'ulna': { aliases: [], features: ['olecranon','coronoid process','trochlear notch','semilunar notch','radial notch','ulnar tuberosity','head','styloid process'] },
+    'scaphoid': { aliases: ['navicular of wrist','os scaphoideum'], features: ['tubercle of scaphoid','waist'] },
+    'lunate': { aliases: ['os lunatum'], features: [] },
+    'triquetrum': { aliases: ['triquetral','os triquetrum'], features: [] },
+    'pisiform': { aliases: ['os pisiforme'], features: [] },
+    'trapezium': { aliases: ['greater multangular','os trapezium'], features: ['tubercle of trapezium'] },
+    'trapezoid': { aliases: ['lesser multangular','os trapezoideum'], features: [] },
+    'capitate': { aliases: ['os capitatum'], features: [] },
+    'hamate': { aliases: ['os hamatum'], features: ['hook of hamate','hamulus'] },
+    'metacarpals': { aliases: ['metacarpal bones'], features: ['head','shaft','base'] },
+    'phalanges': { aliases: ['finger bones','digits'], features: ['proximal phalanx','middle phalanx','distal phalanx'] }
+  },
+  joints: {
+    'sternoclavicular joint': { aliases: ['sc joint','sternoclavicular articulation'], connects: ['clavicle','sternum'], type: 'saddle joint', features: ['articular disc','anterior sternoclavicular ligament','posterior sternoclavicular ligament','costoclavicular ligament','interclavicular ligament'] },
+    'acromioclavicular joint': { aliases: ['ac joint'], connects: ['acromion','clavicle'], type: 'plane joint', features: ['acromioclavicular ligament','coracoclavicular ligament','coracoacromial ligament'] },
+    'glenohumeral joint': { aliases: ['shoulder joint','glenoid joint'], connects: ['glenoid cavity','head of humerus'], type: 'ball and socket joint', features: ['glenoid labrum','glenohumeral ligaments','coracohumeral ligament','transverse humeral ligament','rotator cuff tendons','subacromial bursa'] },
+    'humeroulnar joint': { aliases: ['elbow joint (humeroulnar)','trochlea-trochlear notch joint'], connects: ['trochlea of humerus','trochlear notch of ulna'], type: 'hinge joint', features: ['ulnar collateral ligament','medial collateral ligament'] },
+    'humeroradial joint': { aliases: ['elbow joint (humeroradial)'], connects: ['capitulum of humerus','head of radius'], type: 'ball and socket joint', features: ['radial collateral ligament','annular ligament'] },
+    'proximal radioulnar joint': { aliases: ['pruj','superior radioulnar joint'], connects: ['head of radius','radial notch of ulna'], type: 'pivot joint', features: ['annular ligament','quadrate ligament'] },
+    'distal radioulnar joint': { aliases: ['druj','inferior radioulnar joint'], connects: ['ulnar notch of radius','head of ulna'], type: 'pivot joint', features: ['articular disc','triangular fibrocartilage complex','tfcc'] },
+    'radiocarpal joint': { aliases: ['wrist joint'], connects: ['distal radius','proximal carpal row'], type: 'condyloid joint', features: ['palmar radiocarpal ligament','dorsal radiocarpal ligament','radial collateral ligament','ulnar collateral ligament'] },
+    'midcarpal joint': { aliases: [], connects: ['proximal carpal row','distal carpal row'], type: 'compound joint', features: [] },
+    'carpometacarpal joints': { aliases: ['cmc joints'], connects: ['distal carpals','metacarpal bases'], type: 'plane joint', features: ['deep transverse metacarpal ligament'] },
+    'metacarpophalangeal joints': { aliases: ['mcp joints','knuckle joints'], connects: ['metacarpal heads','proximal phalangeal bases'], type: 'condyloid joint', features: ['palmar plate','collateral ligaments'] },
+    'interphalangeal joints': { aliases: ['ip joints','pip joint','dip joint'], connects: ['phalangeal head','phalangeal base'], type: 'hinge joint', features: ['palmar plate','collateral ligaments'] }
+  },
+  muscles: {
+    'deltoid': { aliases: [], origin: 'lateral clavicle, acromion, spine of scapula', insertion: 'deltoid tuberosity of humerus', action: 'abduction, flexion, extension, medial and lateral rotation of arm', nerve: 'axillary nerve (C5, C6)', parts: ['anterior deltoid','middle deltoid','posterior deltoid'] },
+    'supraspinatus': { aliases: [], origin: 'supraspinous fossa of scapula', insertion: 'superior facet of greater tubercle of humerus', action: 'initiates abduction of arm (first 15 degrees), stabilises glenohumeral joint', nerve: 'suprascapular nerve (C5, C6)' },
+    'infraspinatus': { aliases: [], origin: 'infraspinous fossa of scapula', insertion: 'middle facet of greater tubercle of humerus', action: 'lateral rotation of arm, stabilises glenohumeral joint', nerve: 'suprascapular nerve (C5, C6)' },
+    'teres minor': { aliases: [], origin: 'lateral border of scapula (upper two-thirds)', insertion: 'inferior facet of greater tubercle of humerus', action: 'lateral rotation of arm, stabilises glenohumeral joint', nerve: 'axillary nerve (C5, C6)' },
+    'subscapularis': { aliases: [], origin: 'subscapular fossa', insertion: 'lesser tubercle of humerus', action: 'medial rotation of arm, stabilises glenohumeral joint', nerve: 'upper and lower subscapular nerves (C5, C6, C7)' },
+    'teres major': { aliases: [], origin: 'inferior angle of scapula', insertion: 'medial lip of intertubercular groove of humerus', action: 'medial rotation, adduction and extension of arm', nerve: 'lower subscapular nerve (C6, C7)' },
+    'biceps brachii': { aliases: ['biceps'], origin: 'long head: supraglenoid tubercle; short head: coracoid process', insertion: 'radial tuberosity; bicipital aponeurosis', action: 'flexion of elbow, supination of forearm, weak shoulder flexion', nerve: 'musculocutaneous nerve (C5, C6)' },
+    'brachialis': { aliases: [], origin: 'distal anterior humerus', insertion: 'ulnar tuberosity and coronoid process of ulna', action: 'flexion of elbow (prime mover)', nerve: 'musculocutaneous nerve (C5, C6); small contribution from radial nerve' },
+    'coracobrachialis': { aliases: [], origin: 'coracoid process of scapula', insertion: 'medial aspect of mid-humeral shaft', action: 'flexion and adduction of arm', nerve: 'musculocutaneous nerve (C5, C6, C7)' },
+    'triceps brachii': { aliases: ['triceps'], origin: 'long head: infraglenoid tubercle; medial and lateral heads: posterior humerus', insertion: 'olecranon of ulna', action: 'extension of elbow, long head assists arm extension and adduction', nerve: 'radial nerve (C6, C7, C8)' },
+    'anconeus': { aliases: [], origin: 'lateral epicondyle of humerus', insertion: 'olecranon and posterior ulna', action: 'assists elbow extension', nerve: 'radial nerve (C7, C8)' },
+    'brachioradialis': { aliases: [], origin: 'lateral supracondylar ridge of humerus', insertion: "styloid process of radius", action: 'flexion of elbow, assists pronation and supination to neutral', nerve: 'radial nerve (C5, C6)' },
+    'pronator teres': { aliases: [], origin: 'medial epicondyle (common flexor origin) and coronoid process', insertion: 'lateral mid-radius', action: 'pronation of forearm, assists elbow flexion', nerve: 'median nerve (C6, C7)' },
+    'pronator quadratus': { aliases: [], origin: 'distal anterior ulna', insertion: 'distal anterior radius', action: 'pronation of forearm', nerve: 'anterior interosseous nerve (branch of median nerve) (C7, C8)' },
+    'supinator': { aliases: [], origin: 'lateral epicondyle, radial collateral ligament, annular ligament, supinator crest of ulna', insertion: 'lateral proximal radius', action: 'supination of forearm', nerve: 'deep branch of radial nerve (C6, C7)' },
+    'flexor carpi radialis': { aliases: ['fcr'], origin: 'medial epicondyle (common flexor origin)', insertion: 'bases of 2nd and 3rd metacarpals', action: 'wrist flexion and radial deviation', nerve: 'median nerve (C6, C7)' },
+    'flexor carpi ulnaris': { aliases: ['fcu'], origin: 'medial epicondyle; olecranon and posterior ulna', insertion: 'pisiform, hook of hamate, base of 5th metacarpal', action: 'wrist flexion and ulnar deviation', nerve: 'ulnar nerve (C7, C8)' },
+    'palmaris longus': { aliases: [], origin: 'medial epicondyle (common flexor origin)', insertion: 'palmar aponeurosis', action: 'wrist flexion, tenses palmar aponeurosis', nerve: 'median nerve (C7, C8)' },
+    'extensor carpi radialis longus': { aliases: ['ecrl'], origin: 'lateral supracondylar ridge', insertion: 'base of 2nd metacarpal', action: 'wrist extension and radial deviation', nerve: 'radial nerve (C6, C7)' },
+    'extensor carpi radialis brevis': { aliases: ['ecrb'], origin: 'lateral epicondyle (common extensor origin)', insertion: 'base of 3rd metacarpal', action: 'wrist extension and radial deviation', nerve: 'deep branch of radial nerve (C6, C7)' },
+    'extensor carpi ulnaris': { aliases: ['ecu'], origin: 'lateral epicondyle (common extensor origin); posterior ulna', insertion: 'base of 5th metacarpal', action: 'wrist extension and ulnar deviation', nerve: 'deep branch of radial nerve (C7, C8)' }
+  },
+  nerves: {
+    'brachial plexus': { aliases: [], roots: 'C5–T1 ventral rami', trunks: 'superior (C5,C6), middle (C7), inferior (C8,T1)', divisions: 'anterior and posterior from each trunk', cords: 'lateral, medial, posterior cords', branches: ['musculocutaneous nerve','median nerve','ulnar nerve','radial nerve','axillary nerve'] },
+    'axillary nerve': { aliases: [], roots: 'C5, C6', from: 'posterior cord of brachial plexus', supplies_motor: 'deltoid, teres minor', supplies_sensory: 'regimental badge area (lateral arm)' },
+    'musculocutaneous nerve': { aliases: [], roots: 'C5, C6, C7', from: 'lateral cord of brachial plexus', supplies_motor: 'biceps brachii, brachialis, coracobrachialis', supplies_sensory: 'lateral cutaneous nerve of forearm', continues_as: 'lateral cutaneous nerve of forearm' },
+    'median nerve': { aliases: [], roots: 'C6, C7, C8, T1', from: 'lateral and medial cords (dual root)', supplies_motor: 'most forearm flexors, thenar muscles, lateral two lumbricals', supplies_sensory: 'lateral 3.5 digits (palmar and dorsal tips)', branches: ['anterior interosseous nerve','palmar cutaneous branch','recurrent branch to thenar eminence'] },
+    'ulnar nerve': { aliases: [], roots: 'C7, C8, T1', from: 'medial cord', supplies_motor: 'flexor carpi ulnaris, medial half flexor digitorum profundus, hypothenar muscles, interossei, medial two lumbricals, adductor pollicis', supplies_sensory: 'medial 1.5 digits and medial palm', passes_through: "cubital tunnel at elbow, canal of guyon at wrist" },
+    'radial nerve': { aliases: [], roots: 'C5, C6, C7, C8, T1', from: 'posterior cord', supplies_motor: 'all extensors of arm and forearm', supplies_sensory: 'posterior arm, forearm and hand (snuffbox and dorsum)', branches: ['deep branch / posterior interosseous nerve','superficial branch'] },
+    'suprascapular nerve': { aliases: [], roots: 'C5, C6', from: 'superior trunk of brachial plexus', supplies_motor: 'supraspinatus, infraspinatus' },
+    'long thoracic nerve': { aliases: ['nerve of bell',"bell's nerve"], roots: 'C5, C6, C7', from: 'roots of brachial plexus directly', supplies_motor: 'serratus anterior', injury: 'winged scapula' }
+  }
+};
+
+const COMMANDS = ['join','query','enquire','test','describe','list','inventory','help','status','select','remove','connect','identify','quiz','build','examine'];
+const SYNONYMS = {
+  'shoulder joint': 'glenohumeral joint','shoulder':'glenohumeral joint',
+  'elbow joint': 'humeroulnar joint','elbow':'humeroulnar joint',
+  'wrist joint': 'radiocarpal joint','wrist':'radiocarpal joint',
+  'rotator cuff': 'supraspinatus, infraspinatus, teres minor, subscapularis',
+  'biceps': 'biceps brachii','triceps': 'triceps brachii',
+  'collar bone': 'clavicle','shoulder blade': 'scapula',
+  'forearm bones': 'radius and ulna',
+  'leg': null, 'lower limb': null, 'thigh': null, 'foot': null
+};
+
+let state = {
+  score: 0,
+  mode: null,
+  phase: 'intro',
+  region: null,
+  built: { bones: [], joints: [], muscles: [], nerves: [] },
+  quizQueue: [],
+  quizCurrent: null,
+  quizAnswered: [],
+  puzzleItems: [],
+  awaitingConfirm: null,
+  lastCategory: null
+};
+
+function completion() {
+  const total = Object.keys(DB.bones).length + Object.keys(DB.joints).length + Object.keys(DB.muscles).length + Object.keys(DB.nerves).length;
+  const done = state.built.bones.length + state.built.joints.length + state.built.muscles.length + state.built.nerves.length;
+  return Math.round((done / total) * 100);
+}
+
+function updateUI() {
+  document.getElementById('score-val').textContent = state.score;
+  document.getElementById('mode-val').textContent = state.mode || '—';
+  const pct = completion();
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-pct').textContent = pct + '%';
+  document.getElementById('mode-badge').textContent = state.mode ? state.mode.toUpperCase() : 'READY';
+}
+
+function addLine(text, cls) {
+  const out = document.getElementById('output');
+  const lines = text.split('\n');
+  lines.forEach(ln => {
+    const d = document.createElement('div');
+    d.className = 'line ' + (cls || 'system');
+    d.textContent = ln === '' ? ' ' : ln;
+    if (ln === '') d.className = 'line blank';
+    out.appendChild(d);
+  });
+  out.scrollTop = out.scrollHeight;
+}
+
+function addSep() {
+  const out = document.getElementById('output');
+  const d = document.createElement('div');
+  d.className = 'line separator';
+  d.textContent = '─'.repeat(55);
+  out.appendChild(d);
+}
+
+function normalize(s) {
+  return s.toLowerCase().replace(/[^a-z0-9 ']/g,' ').replace(/\s+/,' ').trim();
+}
+
+function findInDB(input) {
+  const n = normalize(input);
+  for (const cat of ['bones','joints','muscles','nerves']) {
+    for (const [key, val] of Object.entries(DB[cat])) {
+      if (normalize(key) === n) return { cat, key, val };
+      if (val.aliases && val.aliases.some(a => normalize(a) === n)) return { cat, key, val };
+    }
+  }
+  return null;
+}
+
+function findFeature(input, structKey, cat) {
+  const n = normalize(input);
+  const val = DB[cat][structKey];
+  const fields = ['features','connects','branches','parts','injury'];
+  for (const f of fields) {
+    if (val[f] && Array.isArray(val[f])) {
+      for (const feat of val[f]) {
+        if (normalize(feat) === n || normalize(feat).includes(n) || n.includes(normalize(feat).split(' ')[0])) return feat;
+      }
+    }
+  }
+  return null;
+}
+
+function parseJoin(args) {
+  const cleaned = args.replace(/ and /gi,' AND ').replace(/ of /gi,' OF ');
+  const parts = cleaned.split(' AND ');
+  return parts.map(p => {
+    const ofIdx = p.indexOf(' OF ');
+    if (ofIdx > -1) {
+      return { feature: p.substring(0, ofIdx).trim(), structure: p.substring(ofIdx + 4).trim() };
+    }
+    return { feature: null, structure: p.trim() };
+  });
+}
+
+function handleCommand(raw) {
+  const trimmed = raw.trim();
+  addLine('> ' + trimmed, 'player');
+
+  if (state.awaitingConfirm) {
+    const n = normalize(trimmed);
+    const handler = state.awaitingConfirm;
+    state.awaitingConfirm = null;
+    handler(n);
+    updateUI();
+    return;
+  }
+
+  const lower = trimmed.toLowerCase();
+  const commaIdx = trimmed.indexOf(',');
+
+  if (commaIdx === -1) {
+    handleFreeInput(lower);
+    updateUI();
+    return;
+  }
+
+  const cmd = trimmed.substring(0, commaIdx).trim().toLowerCase();
+  const args = trimmed.substring(commaIdx + 1).trim();
+
+  if (!COMMANDS.includes(cmd)) {
+    addLine('Command not recognised. Type "help," for a list of commands.', 'hint');
+    updateUI();
+    return;
+  }
+
+  switch(cmd) {
+    case 'help': cmdHelp(); break;
+    case 'list': cmdList(args); break;
+    case 'inventory': cmdInventory(); break;
+    case 'status': cmdStatus(); break;
+    case 'select': cmdSelect(args); break;
+    case 'build': cmdBuild(args); break;
+    case 'join': cmdJoin(args); break;
+    case 'query':
+    case 'enquire':
+    case 'describe':
+    case 'examine':
+    case 'identify': cmdQuery(args); break;
+    case 'connect': cmdConnect(args); break;
+    case 'remove': cmdRemove(args); break;
+    case 'test':
+    case 'quiz': cmdQuiz(args); break;
+    default:
+      addLine('Command not recognised. Type "help," for a list of commands.', 'hint');
+  }
+
+  updateUI();
+}
+
+function handleFreeInput(input) {
+  const n = normalize(input);
+
+  if (state.phase === 'intro') {
+    if (n.includes('upper limb') || n.includes('upper extremity') || n.includes('arm')) {
+      state.region = 'upper limb';
+      state.phase = 'mode_select';
+      addLine('');
+      addLine('REGION ACCEPTED: Upper Limb');
+      addLine('');
+      addLine('Select your operating mode:');
+      addLine('  BUILD  — Construct the upper limb from its anatomical components.');
+      addLine('  QUIZ   — Be tested on structures and their relationships.');
+      addLine('  PUZZLE — A damaged specimen awaits repair. Diagnose and restore.');
+      addLine('');
+      addLine('Type the mode name, or type "help," at any time.');
+    } else if (SYNONYMS[n] === null || ['leg','lower limb','thigh','foot','knee','hip'].some(w => n.includes(w))) {
+      addLine('Anatomical region not recognised within this module.', 'hint');
+      addLine('This system currently supports: upper limb, upper extremity.', 'hint');
+    } else {
+      addLine('Uncertain region. This module covers the upper limb.', 'hint');
+      addLine('Try: > upper limb', 'hint');
+    }
+    return;
+  }
+
+  if (state.phase === 'mode_select') {
+    if (n === 'build') { startBuild(); return; }
+    if (n === 'quiz') { startQuiz(); return; }
+    if (n === 'puzzle') { startPuzzle(); return; }
+    addLine('Please select a mode: BUILD, QUIZ, or PUZZLE.', 'hint');
+    return;
+  }
+
+  if (state.phase === 'quiz_active') {
+    handleQuizAnswer(input);
+    return;
+  }
+
+  if (state.phase === 'puzzle_active') {
+    handlePuzzleInput(input);
+    return;
+  }
+
+  const found = findInDB(input);
+  if (found) {
+    cmdQuery(input);
+    return;
+  }
+
+  const syn = Object.entries(SYNONYMS).find(([k]) => n.includes(k));
+  if (syn) {
+    if (syn[1] === null) {
+      addLine('That region is not part of this module.', 'hint');
+    } else {
+      addLine('Did you mean: ' + syn[1] + '?', 'hint');
+      addLine('Note: "' + syn[0] + '" is an informal term. Please use precise anatomical terminology.', 'hint');
+    }
+    return;
+  }
+
+  addLine('Input not understood. Use a command with a comma — e.g. "help," or "query, humerus".', 'hint');
+}
+
+function startBuild() {
+  state.mode = 'BUILD';
+  state.phase = 'build_active';
+  addLine('');
+  addLine('BUILD MODE INITIATED');
+  addSep();
+  addLine('You must reconstruct the upper limb systematically.');
+  addLine('Begin with the skeletal framework, then articulations, then musculature, then neurovascular supply.');
+  addLine('');
+  addLine('Useful commands:');
+  addLine('  build, [structure]       — add a structure to the specimen');
+  addLine('  join, [feature] of [bone] and [feature] of [bone]  — articulate two bones');
+  addLine('  query, [structure]       — retrieve anatomical data');
+  addLine('  list, bones|joints|muscles|nerves  — list available structures');
+  addLine('  inventory,               — view what you have built so far');
+}
+
+function startQuiz() {
+  state.mode = 'QUIZ';
+  state.phase = 'quiz_active';
+  state.quizQueue = shuffleQuiz();
+  state.quizAnswered = [];
+  addLine('');
+  addLine('QUIZ MODE INITIATED');
+  addSep();
+  addLine('Answer questions about upper limb anatomy. Type your answer at the prompt.');
+  addLine('Type "skip," to pass, or "exit," to return to mode selection.');
+  addLine('');
+  nextQuiz();
+}
+
+function shuffleQuiz() {
+  const qs = [];
+  for (const [key, val] of Object.entries(DB.muscles)) {
+    qs.push({ type: 'nerve_of_muscle', key, val });
+    qs.push({ type: 'action_of_muscle', key, val });
+  }
+  for (const [key, val] of Object.entries(DB.joints)) {
+    qs.push({ type: 'joint_type', key, val });
+    if (val.connects) qs.push({ type: 'joint_connects', key, val });
+  }
+  for (const [key, val] of Object.entries(DB.nerves)) {
+    qs.push({ type: 'nerve_supplies', key, val });
+  }
+  return qs.sort(() => Math.random() - 0.5);
+}
+
+function nextQuiz() {
+  if (!state.quizQueue.length) {
+    addLine('');
+    addLine('Quiz complete. All questions answered.');
+    addLine('Final score: ' + state.score);
+    state.phase = 'mode_select';
+    return;
+  }
+  state.quizCurrent = state.quizQueue.shift();
+  const q = state.quizCurrent;
+  addLine('');
+  if (q.type === 'nerve_of_muscle') addLine('Q: Which nerve innervates the ' + q.key + '?');
+  else if (q.type === 'action_of_muscle') addLine('Q: What is the primary action of the ' + q.key + '?');
+  else if (q.type === 'joint_type') addLine('Q: What type of synovial joint is the ' + q.key + '?');
+  else if (q.type === 'joint_connects') addLine('Q: What two structures articulate at the ' + q.key + '?');
+  else if (q.type === 'nerve_supplies') addLine('Q: What motor structures does the ' + q.key + ' innervate?');
+}
+
+function handleQuizAnswer(input) {
+  const q = state.quizCurrent;
+  if (!q) return;
+  const n = normalize(input);
+
+  if (n === 'skip') { addLine('Skipped.', 'hint'); addLine('Answer: ' + getAnswer(q), 'hint'); nextQuiz(); return; }
+  if (n === 'exit') { state.phase = 'mode_select'; addLine('Returning to mode selection.'); return; }
+
+  const answer = getAnswer(q);
+  const ansN = normalize(answer);
+  const correct = ansN.includes(n) || n.includes(ansN.split(',')[0].substring(0,8));
+
+  if (correct) {
+    addLine('Correct. +10 points.', 'success');
+    state.score += 10;
+  } else {
+    addLine('Incorrect.', 'error');
+    addLine('Accepted answer: ' + answer, 'hint');
+    state.score = Math.max(0, state.score - 2);
+  }
+  nextQuiz();
+}
+
+function getAnswer(q) {
+  if (q.type === 'nerve_of_muscle') return q.val.nerve || 'unknown';
+  if (q.type === 'action_of_muscle') return q.val.action || 'unknown';
+  if (q.type === 'joint_type') return q.val.type || 'unknown';
+  if (q.type === 'joint_connects') return (q.val.connects || []).join(' and ');
+  if (q.type === 'nerve_supplies') return q.val.supplies_motor || 'unknown';
+  return 'unknown';
+}
+
+function startPuzzle() {
+  state.mode = 'PUZZLE';
+  state.phase = 'puzzle_active';
+  const puzzles = [
+    { desc: 'A patient presents with inability to abduct the arm beyond 15 degrees and loss of glenohumeral joint stability. Which rotator cuff muscle is damaged?', answer: 'supraspinatus', hint: 'This muscle originates from the supraspinous fossa and inserts on the superior facet of the greater tubercle.' },
+    { desc: 'Following a mid-shaft humeral fracture, the patient cannot extend the wrist or fingers. Which nerve has been injured?', answer: 'radial nerve', hint: 'This nerve runs in the radial groove (spiral groove) of the humerus.' },
+    { desc: 'A patient presents with a claw hand deformity and loss of sensation over the medial 1.5 digits. Which nerve is compromised?', answer: 'ulnar nerve', hint: 'This nerve passes through the cubital tunnel at the elbow and the canal of Guyon at the wrist.' },
+    { desc: 'Loss of forearm supination and inability to flex the elbow with the forearm supinated. The forearm flexion with pronation is preserved. Which nerve is damaged?', answer: 'musculocutaneous nerve', hint: 'This nerve innervates the biceps brachii, brachialis, and coracobrachialis.' },
+    { desc: 'A patient cannot flex the wrist or oppose the thumb, and has lost sensation over the lateral 3.5 digits of the palm. Which nerve is involved?', answer: 'median nerve', hint: 'This nerve enters the hand through the carpal tunnel.' }
+  ];
+  state.puzzleItems = puzzles.sort(() => Math.random() - 0.5);
+  state.puzzleCurrent = state.puzzleItems.shift();
+  addLine('');
+  addLine('PUZZLE MODE INITIATED — CLINICAL RECONSTRUCTION');
+  addSep();
+  addLine('Diagnose the anatomical deficit based on clinical presentation.');
+  addLine('Type your answer. Type "hint," for a clue. Type "exit," to quit.');
+  addLine('');
+  addLine('CASE PRESENTATION:');
+  addLine(state.puzzleCurrent.desc, 'system');
+}
+
+function handlePuzzleInput(input) {
+  const n = normalize(input);
+  if (n === 'exit') { state.phase = 'mode_select'; addLine('Returning to mode selection.'); return; }
+  if (n === 'hint') { addLine('Hint: ' + state.puzzleCurrent.hint, 'hint'); return; }
+  const ans = normalize(state.puzzleCurrent.answer);
+  if (n.includes(ans) || ans.includes(n)) {
+    addLine('Correct diagnosis. +20 points.', 'success');
+    state.score += 20;
+    if (state.puzzleItems.length) {
+      state.puzzleCurrent = state.puzzleItems.shift();
+      addLine('');
+      addLine('NEXT CASE:');
+      addLine(state.puzzleCurrent.desc, 'system');
+    } else {
+      addLine('All cases resolved. Excellent clinical acumen.', 'success');
+      state.phase = 'mode_select';
+    }
+  } else {
+    addLine('Incorrect. Re-examine the presentation carefully.', 'error');
+    addLine('Type "hint," for assistance.', 'hint');
+    state.score = Math.max(0, state.score - 3);
+  }
+}
+
+function cmdHelp() {
+  addLine('');
+  addLine('AVAILABLE COMMANDS (follow each with a comma):');
+  addSep();
+  addLine('  help,                           — this reference');
+  addLine('  list, [category]                — list: bones, joints, muscles, or nerves');
+  addLine('  build, [structure name]         — add structure to specimen (build mode)');
+  addLine('  join, [feat] of [A] and [feat] of [B]  — articulate two structures');
+  addLine('  query, [structure]              — retrieve full anatomical data');
+  addLine('  describe, [structure]           — alias for query');
+  addLine('  examine, [structure]            — alias for query');
+  addLine('  connect, [nerve] to [muscle]    — link nerve to its target');
+  addLine('  remove, [structure]             — remove from specimen');
+  addLine('  inventory,                      — view built structures');
+  addLine('  status,                         — show score and completion');
+  addLine('  test,                           — enter quiz mode');
+  addLine('  quiz,                           — enter quiz mode');
+  addLine('  select, [build|quiz|puzzle]     — switch mode');
+  addLine('');
+  addLine('PARSER RULES:');
+  addLine('  "of"  — binds a feature to its parent structure');
+  addLine('          e.g. "trochlea of humerus"');
+  addLine('  "and" — combines two structures or features');
+  addLine('          e.g. "humerus and ulna"');
+  addLine('  "to"  — directional relationship (nerve to muscle, origin to insertion)');
+}
+
+function cmdList(args) {
+  const n = normalize(args);
+  const cats = { bones: DB.bones, joints: DB.joints, muscles: DB.muscles, nerves: DB.nerves };
+  const match = Object.keys(cats).find(k => n.includes(k));
+  if (!match) {
+    addLine('Specify a category: bones, joints, muscles, or nerves.', 'hint');
+    return;
+  }
+  addLine('');
+  addLine(match.toUpperCase() + ' — Upper Limb:');
+  addSep();
+  Object.keys(cats[match]).forEach(k => {
+    const built = state.built[match].includes(k);
+    addLine('  ' + k + (built ? '  [BUILT]' : ''));
+  });
+}
+
+function cmdBuild(args) {
+  if (!args) { addLine('Specify a structure to build. E.g. "build, humerus"', 'hint'); return; }
+  const found = findInDB(args);
+  if (!found) {
+    addLine('Structure not recognised: "' + args + '"', 'error');
+    const syn = Object.entries(SYNONYMS).find(([k]) => normalize(args).includes(k));
+    if (syn && syn[1]) addLine('Did you mean: ' + syn[1] + '?', 'hint');
+    else addLine('Check spelling or try "list, bones" to see available structures.', 'hint');
+    return;
+  }
+  if (state.built[found.cat].includes(found.key)) {
+    addLine(found.key + ' is already present in the specimen.', 'hint');
+    return;
+  }
+  state.built[found.cat].push(found.key);
+  state.score += 5;
+  addLine('');
+  addLine('Added: ' + found.key.toUpperCase() + ' [' + found.cat.toUpperCase() + ']', 'success');
+  addLine('+5 points');
+}
+
+function cmdJoin(args) {
+  if (!args) { addLine('Syntax: join, [feature] of [structure A] and [feature] of [structure B]', 'hint'); return; }
+  const parsed = parseJoin(args);
+  if (parsed.length < 2) {
+    addLine('Incomplete join. Provide two structures with "and".', 'hint');
+    addLine('Example: join, trochlea of humerus and trochlear notch of ulna', 'hint');
+    return;
+  }
+  const results = parsed.map(p => ({ ...p, found: findInDB(p.structure) }));
+  const notFound = results.filter(r => !r.found);
+  if (notFound.length) {
+    notFound.forEach(r => addLine('Structure not found: "' + r.structure + '"', 'error'));
+    return;
+  }
+  const missingBuild = results.filter(r => !state.built[r.found.cat].includes(r.found.key));
+  if (missingBuild.length) {
+    missingBuild.forEach(r => addLine('You must first build the ' + r.found.key + ' before joining it.', 'hint'));
+    return;
+  }
+  addLine('');
+  addLine('ARTICULATION ANALYSIS:');
+  addSep();
+  results.forEach(r => {
+    if (r.feature) {
+      const feat = findFeature(r.feature, r.found.key, r.found.cat);
+      if (feat) {
+        addLine('  Confirmed: ' + feat + ' — present on ' + r.found.key + '.', 'success');
+        state.score += 8;
+        addLine('  +8 points');
+      } else {
+        addLine('  Feature "' + r.feature + '" not confirmed on ' + r.found.key + '.', 'hint');
+        addLine('  Known features: ' + (r.found.val.features || []).slice(0,5).join(', '), 'hint');
+      }
+    } else {
+      addLine('  ' + r.found.key + ' identified.', 'system');
+    }
+  });
+  const match = findJointByBones(results.map(r => r.found.key));
+  if (match) {
+    addLine('');
+    addLine('JOINT IDENTIFIED: ' + match.key.toUpperCase(), 'success');
+    addLine('Type: ' + match.val.type);
+    if (!state.built.joints.includes(match.key)) {
+      state.built.joints.push(match.key);
+      state.score += 10;
+      addLine('+10 points — joint added to specimen.');
+    }
+  }
+}
+
+function findJointByBones(boneKeys) {
+  for (const [key, val] of Object.entries(DB.joints)) {
+    if (!val.connects) continue;
+    const connects = val.connects.map(normalize);
+    if (boneKeys.some(b => connects.some(c => c.includes(normalize(b)) || normalize(b).includes(c.split(' ')[0])))) {
+      if (boneKeys.length >= 1) return { key, val };
+    }
+  }
+  return null;
+}
+
+function cmdQuery(args) {
+  if (!args) { addLine('Specify a structure to query.', 'hint'); return; }
+  const found = findInDB(args);
+  if (!found) {
+    const syn = Object.entries(SYNONYMS).find(([k]) => normalize(args).includes(normalize(k)));
+    if (syn) {
+      if (syn[1] === null) { addLine('"' + args + '" is not within this module\'s scope.', 'hint'); return; }
+      addLine('Non-standard terminology detected.', 'hint');
+      addLine('"' + args + '" — Did you mean: ' + syn[1] + '?', 'hint');
+      addLine('Please use precise anatomical terminology.', 'hint');
+      return;
+    }
+    addLine('Structure not found: "' + args + '"', 'error');
+    addLine('Check spelling. Use "list, [category]" to browse available structures.', 'hint');
+    return;
+  }
+  const { cat, key, val } = found;
+  addLine('');
+  addLine('[ ' + key.toUpperCase() + ' ] — ' + cat.toUpperCase());
+  addSep();
+  if (val.aliases && val.aliases.length) addLine('Also known as: ' + val.aliases.join(', '));
+  if (val.features && val.features.length) addLine('Features: ' + val.features.join('; '));
+  if (val.connects) addLine('Articulates: ' + val.connects.join(' ↔ '));
+  if (val.type) addLine('Joint type: ' + val.type);
+  if (val.origin) addLine('Origin: ' + val.origin);
+  if (val.insertion) addLine('Insertion: ' + val.insertion);
+  if (val.action) addLine('Action: ' + val.action);
+  if (val.nerve) addLine('Innervation: ' + val.nerve);
+  if (val.parts) addLine('Parts: ' + val.parts.join(', '));
+  if (val.roots) addLine('Roots: ' + val.roots);
+  if (val.from) addLine('Origin: from ' + val.from);
+  if (val.supplies_motor) addLine('Motor supply: ' + val.supplies_motor);
+  if (val.supplies_sensory) addLine('Sensory supply: ' + val.supplies_sensory);
+  if (val.branches) addLine('Branches: ' + (Array.isArray(val.branches) ? val.branches.join(', ') : val.branches));
+  if (val.passes_through) addLine('Passes through: ' + val.passes_through);
+  if (val.injury) addLine('Injury note: ' + val.injury);
+  if (val.continues_as) addLine('Continues as: ' + val.continues_as);
+  if (val.trunks) addLine('Trunks: ' + val.trunks);
+  if (val.cords) addLine('Cords: ' + val.cords);
+  addLine('');
+}
+
+function cmdConnect(args) {
+  const n = normalize(args);
+  const toIdx = n.indexOf(' to ');
+  if (toIdx === -1) { addLine('Syntax: connect, [nerve] to [muscle]', 'hint'); return; }
+  const nerveStr = args.substring(0, toIdx).trim();
+  const muscleStr = args.substring(toIdx + 4).trim();
+  const nerve = findInDB(nerveStr);
+  const muscle = findInDB(muscleStr);
+  if (!nerve || nerve.cat !== 'nerves') { addLine('"' + nerveStr + '" not found as a nerve.', 'error'); return; }
+  if (!muscle || muscle.cat !== 'muscles') { addLine('"' + muscleStr + '" not found as a muscle.', 'error'); return; }
+  const muscNerve = normalize(muscle.val.nerve || '');
+  const nerveKey = normalize(nerve.key);
+  if (muscNerve.includes(nerveKey) || nerveKey.includes(muscNerve.split('(')[0].trim())) {
+    addLine('Correct. The ' + nerve.key + ' innervates the ' + muscle.key + '.', 'success');
+    addLine(muscle.val.nerve);
+    state.score += 8;
+    addLine('+8 points');
+  } else {
+    addLine('Incorrect connection. The ' + muscle.key + ' is not primarily innervated by the ' + nerve.key + '.', 'error');
+    addLine('Hint: ' + muscle.key + ' — ' + muscle.val.nerve, 'hint');
+    state.score = Math.max(0, state.score - 2);
+  }
+}
+
+function cmdRemove(args) {
+  if (!args) { addLine('Specify a structure to remove.', 'hint'); return; }
+  const found = findInDB(args);
+  if (!found) { addLine('Structure not found: "' + args + '"', 'error'); return; }
+  const idx = state.built[found.cat].indexOf(found.key);
+  if (idx === -1) { addLine(found.key + ' is not in the specimen.', 'hint'); return; }
+  state.built[found.cat].splice(idx, 1);
+  addLine(found.key + ' removed from specimen.', 'system');
+}
+
+function cmdInventory() {
+  addLine('');
+  addLine('SPECIMEN INVENTORY:');
+  addSep();
+  for (const cat of ['bones','joints','muscles','nerves']) {
+    const items = state.built[cat];
+    if (items.length) {
+      addLine(cat.toUpperCase() + ' (' + items.length + '):');
+      items.forEach(i => addLine('  — ' + i));
+    }
+  }
+  if (['bones','joints','muscles','nerves'].every(c => !state.built[c].length)) {
+    addLine('No structures added yet.', 'hint');
+  }
+  addLine('');
+  addLine('Completion: ' + completion() + '%  |  Score: ' + state.score);
+}
+
+function cmdStatus() {
+  addLine('');
+  addLine('SYSTEM STATUS:');
+  addSep();
+  addLine('Region: ' + (state.region || 'none selected'));
+  addLine('Mode: ' + (state.mode || 'none'));
+  addLine('Score: ' + state.score);
+  addLine('Completion: ' + completion() + '%');
+  addLine('Bones built: ' + state.built.bones.length + ' / ' + Object.keys(DB.bones).length);
+  addLine('Joints built: ' + state.built.joints.length + ' / ' + Object.keys(DB.joints).length);
+  addLine('Muscles built: ' + state.built.muscles.length + ' / ' + Object.keys(DB.muscles).length);
+  addLine('Nerves built: ' + state.built.nerves.length + ' / ' + Object.keys(DB.nerves).length);
+}
+
+function cmdSelect(args) {
+  const n = normalize(args);
+  if (n === 'build') { startBuild(); return; }
+  if (n === 'quiz') { startQuiz(); return; }
+  if (n === 'puzzle') { startPuzzle(); return; }
+  addLine('Valid modes: build, quiz, puzzle', 'hint');
+}
+
+function boot() {
+  const lines = [
+    'ANATOMIA RECONSTRUCTION SYSTEM — v1.0',
+    'CRYOGENIC SPECIMEN UNIT 7 — UPPER LIMB MODULE',
+    '',
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    'The year is 2157. The specimen before you was recovered',
+    'from Orbital Station Mendel following catastrophic',
+    'decompression. Cryogenic suspension has preserved the',
+    'biological material, but the anatomical record is',
+    'incomplete.',
+    '',
+    'You have been assigned as Anatomical Reconstruction',
+    'Specialist. It is your task to rebuild, identify, and',
+    'verify every structure within the upper limb.',
+    '',
+    'The integrity of the medical archive depends on you.',
+    '',
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    'Which anatomical region will you reconstruct?',
+    '(This module supports: upper limb)',
+    '',
+    'Type "help," at any time for commands and syntax.',
+    ''
+  ];
+  let i = 0;
+  function next() {
+    if (i < lines.length) { addLine(lines[i], 'system'); i++; setTimeout(next, 18); }
+  }
+  next();
+}
+
+document.getElementById('cmd-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    const val = this.value.trim();
+    if (val) { handleCommand(val); this.value = ''; }
+  }
+});
+
+boot();
+updateUI();
+</script>
